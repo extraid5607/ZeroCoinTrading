@@ -56,12 +56,27 @@ export async function render(root, { ok }) {
         }
       }, isAuto ? 'Auto-Trading: ON' : 'Auto-Trading: OFF');
 
-      const engineBadge = h('span', {
-        class: `pill ${engineMode === 'live' ? 'old' : 'new'}`,
-        style: { marginLeft: '8px' }
-      }, engineMode === 'live' ? 'Engine Target: REAL DELTA' : 'Engine Target: PAPER');
+      const modeSelect = h('select', {
+        class: 'field',
+        style: { width: 'auto', minHeight: '34px', fontSize: '0.85rem', padding: '0 8px', marginLeft: '8px' },
+        on: {
+          change: async (e) => {
+            const nextMode = e.target.value;
+            if ((nextMode === 'live' || nextMode === 'both') && !confirm('Enable REAL Delta Exchange order execution? Real trades will be punched.')) {
+              e.target.value = engineMode;
+              return;
+            }
+            await post('/api/trading/config', { mode: nextMode });
+            load();
+          }
+        }
+      },
+        h('option', { value: 'paper', selected: engineMode === 'paper' }, 'Target: Paper Only'),
+        h('option', { value: 'live', selected: engineMode === 'live' }, 'Target: Real Delta Only'),
+        h('option', { value: 'both', selected: engineMode === 'both' }, 'Target: BOTH (Real + Paper) ⚡')
+      );
 
-      mount(badgeWrap, toggleBtn, engineBadge);
+      mount(badgeWrap, toggleBtn, modeSelect);
     }
 
     // 1. Two Section Tabs (Real Trading vs Paper Trading)

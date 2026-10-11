@@ -19,7 +19,9 @@ DEFAULT_VIRTUAL_BALANCE = 10_000.0
 @dataclass
 class TradingSettings:
     auto_trade: bool = False
-    mode: str = "paper"  # "paper" or "live"
+    mode: str = "paper"  # "paper", "live", or "both"
+    auto_trade_paper: bool = False
+    auto_trade_live: bool = False
     virtual_balance: float = DEFAULT_VIRTUAL_BALANCE
     risk_per_trade_pct: float = 2.0  # risk 2% of portfolio per trade
     max_positions: int = 4
@@ -35,9 +37,15 @@ class TradingSettings:
     @classmethod
     def from_dict(cls, d: dict) -> "TradingSettings":
         pats = tuple(d.get("enabled_patterns", ["ath", "high365", "w", "range"]))
+        mode = str(d.get("mode", "paper"))
+        master_auto = bool(d.get("auto_trade", False))
+        auto_paper = bool(d.get("auto_trade_paper", master_auto if mode in ("paper", "both") else False))
+        auto_live = bool(d.get("auto_trade_live", master_auto if mode in ("live", "both") else False))
         return cls(
-            auto_trade=bool(d.get("auto_trade", False)),
-            mode=str(d.get("mode", "paper")),
+            auto_trade=master_auto,
+            mode=mode,
+            auto_trade_paper=auto_paper,
+            auto_trade_live=auto_live,
             virtual_balance=float(d.get("virtual_balance", DEFAULT_VIRTUAL_BALANCE)),
             risk_per_trade_pct=float(d.get("risk_per_trade_pct", 2.0)),
             max_positions=int(d.get("max_positions", 4)),
@@ -165,76 +173,85 @@ class TradingEngine:
         if pattern not in self.settings.enabled_patterns:
             return False
 
+        modes_to_execute = []
+        if self.settings.mode == "both":
+            modes_to_execute = ["paper", "live"]
+        elif self.settings.mode == "live":
+            modes_to_execute = ["live"]
+        else:
+            modes_to_execute = ["paper"]
+
+        executed_any = False
+        tp = target if (target and target > entry) else entry + 2.0 * (entry - stop)
+        now = time.time()
+
         async with self._lock:
-            with self.db.session() as s:
-                active_count = s.scalar(select(TradePosition).where(TradePosition.status == "open").with_only_columns(TradePosition.id))
-                open_bases = set(s.scalars(select(TradePosition.base).where(TradePosition.status == "open")))
+            for exec_mode in modes_to_execute:
+                with self.db.session() as s:
+                    open_bases = set(s.scalars(select(TradePosition.base).where(TradePosition.status == "open", TradePosition.mode == exec_mode)))
 
-            if len(open_bases) >= self.settings.max_positions:
-                return False
+                if len(open_bases) >= self.settings.max_positions:
+                    continue
 
-            if coin_base.upper() in open_bases:
-                return False  # Already have an open trade on this coin
+                if coin_base.upper() in open_bases:
+                    continue
 
-            # 1. Position Sizing
-            effective_balance = self.settings.virtual_balance
-            if self.settings.mode == "live" and self.delta.is_authenticated():
-                try:
-                    delta_bal = await self.delta.fetch_balance()
-                    if delta_bal.get("free", 0.0) > 0:
-                        effective_balance = float(delta_bal["free"])
-                except Exception as e:
-                    log.warning("Could not fetch real Delta balance for sizing: %s", e)
+                effective_balance = self.settings.virtual_balance
+                if exec_mode == "live":
+                    if not self.delta.is_authenticated():
+                        continue
+                    try:
+                        delta_bal = await self.delta.fetch_balance()
+                        if delta_bal.get("free", 0.0) > 0:
+                            effective_balance = float(delta_bal["free"])
+                    except Exception as e:
+                        log.warning("Could not fetch real Delta balance for sizing: %s", e)
 
-            risk_usd = effective_balance * (self.settings.risk_per_trade_pct / 100.0)
-            risk_per_unit = max(entry * 0.005, abs(entry - stop))
-            size = risk_usd / risk_per_unit
+                risk_usd = effective_balance * (self.settings.risk_per_trade_pct / 100.0)
+                risk_per_unit = max(entry * 0.005, abs(entry - stop))
+                size = risk_usd / risk_per_unit
 
-            # Max notional cap: balance * leverage / max_positions
-            max_notional = (effective_balance * self.settings.leverage) / self.settings.max_positions
-            if size * entry > max_notional:
-                size = max_notional / entry
+                max_notional = (effective_balance * self.settings.leverage) / self.settings.max_positions
+                if size * entry > max_notional:
+                    size = max_notional / entry
 
-            size = round(size, 4)
-            if size <= 0:
-                return False
+                size = round(size, 4)
+                if size <= 0:
+                    continue
 
-            tp = target if (target and target > entry) else entry + 2.0 * (entry - stop)
-            now = time.time()
+                if exec_mode == "live" and self.delta.is_authenticated():
+                    try:
+                        await self.delta.create_bracket_order(symbol, "buy", size, stop_loss=stop, take_profit=tp)
+                        log.info("Live bracket order executed on Delta for %s", symbol)
+                    except Exception as exc:
+                        log.error("Failed to execute live order on Delta: %s", exc)
+                        continue
 
-            # 2. Execution (Paper or Live)
-            if self.settings.mode == "live" and self.delta.is_authenticated():
-                try:
-                    await self.delta.create_bracket_order(symbol, "buy", size, stop_loss=stop, take_profit=tp)
-                    log.info("Live bracket order executed on Delta for %s", symbol)
-                except Exception as exc:
-                    log.error("Failed to execute live order on Delta: %s", exc)
-                    return False
+                pos = TradePosition(
+                    symbol=symbol,
+                    base=coin_base.upper(),
+                    venue="delta",
+                    side="long",
+                    size=size,
+                    entry_price=entry,
+                    current_price=entry,
+                    stop_loss=stop,
+                    take_profit=tp,
+                    pattern=pattern,
+                    pnl=0.0,
+                    pnl_pct=0.0,
+                    status="open",
+                    mode=exec_mode,
+                    created_at=now,
+                    updated_at=now,
+                )
+                with self.db.session() as s:
+                    s.add(pos)
+                    s.commit()
+                log.info("Opened %s trade on %s at %s, SL: %s, TP: %s", exec_mode, coin_base, entry, stop, tp)
+                executed_any = True
 
-            # Record position
-            pos = TradePosition(
-                symbol=symbol,
-                base=coin_base.upper(),
-                venue="delta",
-                side="long",
-                size=size,
-                entry_price=entry,
-                current_price=entry,
-                stop_loss=stop,
-                take_profit=tp,
-                pattern=pattern,
-                pnl=0.0,
-                pnl_pct=0.0,
-                status="open",
-                mode=self.settings.mode,
-                created_at=now,
-                updated_at=now,
-            )
-            with self.db.session() as s:
-                s.add(pos)
-                s.commit()
-            log.info("Opened %s trade on %s at %s, SL: %s, TP: %s", self.settings.mode, coin_base, entry, stop, tp)
-            return True
+        return executed_any
 
     # ---- Live Position Tracking & Trailing Stops -----------------------------
     def update_open_positions(self, live_prices: dict[str, float]) -> list[dict]:

@@ -48,16 +48,29 @@ class DeltaClient:
         self,
         api_key: str | None = None,
         api_secret: str | None = None,
-        region: str = "india",
+        region: str | None = None,
         testnet: bool = False,
     ) -> None:
-        self.api_key = api_key or os.environ.get("DELTA_API_KEY", "")
-        self.api_secret = api_secret or os.environ.get("DELTA_API_SECRET", "")
-        self.region = region.lower() if region.lower() in ("global", "india") else "india"
+        self._explicit_key = api_key
+        self._explicit_secret = api_secret
+        self._explicit_region = region
         self.testnet = testnet
         self._exchange: ccxt.delta | None = None
         self._session: aiohttp.ClientSession | None = None
         self._lock = asyncio.Lock()
+
+    @property
+    def api_key(self) -> str:
+        return self._explicit_key or os.environ.get("DELTA_API_KEY", "")
+
+    @property
+    def api_secret(self) -> str:
+        return self._explicit_secret or os.environ.get("DELTA_API_SECRET", "")
+
+    @property
+    def region(self) -> str:
+        reg = (self._explicit_region or os.environ.get("DELTA_REGION", "india")).lower()
+        return reg if reg in ("global", "india") else "india"
 
     async def _get_exchange(self) -> ccxt.delta:
         if self._exchange is not None:
@@ -157,16 +170,37 @@ class DeltaClient:
             raise PermissionError("Delta API key and secret are not configured.")
         ex = await self._get_exchange()
         bal = await ex.fetch_balance()
-        # Delta India accounts are typically denominated in USD or USDT
-        usd_info = bal.get("USD") or bal.get("USDT") or {}
-        free = float(usd_info.get("free", 0.0) if isinstance(usd_info, dict) else (bal.get("free", {}).get("USD", 0.0) or 0.0))
-        used = float(usd_info.get("used", 0.0) if isinstance(usd_info, dict) else (bal.get("used", {}).get("USD", 0.0) or 0.0))
-        total = float(usd_info.get("total", 0.0) if isinstance(usd_info, dict) else (bal.get("total", {}).get("USD", 0.0) or 0.0))
+        # CCXT formats bal with sub-dicts 'free', 'used', 'total'
+        free_map = bal.get("free") or {}
+        used_map = bal.get("used") or {}
+        total_map = bal.get("total") or {}
+
+        # Look for USD, USDT, or INR
+        free = 0.0
+        used = 0.0
+        total = 0.0
+        for currency in ["USD", "USDT", "INR"]:
+            if currency in free_map and free_map[currency]:
+                free = float(free_map[currency])
+                used = float(used_map.get(currency, 0.0) or 0.0)
+                total = float(total_map.get(currency, free) or free)
+                break
+
+        # Fallback to direct currency dict (e.g. bal['USD'])
+        if total == 0.0:
+            for currency in ["USD", "USDT", "INR"]:
+                cur_dict = bal.get(currency)
+                if isinstance(cur_dict, dict) and (cur_dict.get("total") or cur_dict.get("free")):
+                    free = float(cur_dict.get("free", 0.0) or 0.0)
+                    used = float(cur_dict.get("used", 0.0) or 0.0)
+                    total = float(cur_dict.get("total", free) or free)
+                    break
+
         return {
             "free": round(free, 2),
             "used": round(used, 2),
             "total": round(total, 2),
-            "raw": bal.get("total", {}),
+            "raw": total_map,
         }
 
     async def fetch_positions(self) -> list[dict]:
