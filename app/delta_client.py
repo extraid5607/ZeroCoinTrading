@@ -61,11 +61,11 @@ class DeltaClient:
 
     @property
     def api_key(self) -> str:
-        return self._explicit_key or os.environ.get("DELTA_API_KEY", "")
+        return self._explicit_key or os.environ.get("DELTA_API_KEY") or os.environ.get("DELTA_APT_KEY", "")
 
     @property
     def api_secret(self) -> str:
-        return self._explicit_secret or os.environ.get("DELTA_API_SECRET", "")
+        return self._explicit_secret or os.environ.get("DELTA_API_SECRET") or os.environ.get("DELTA_APT_SECRET", "")
 
     @property
     def region(self) -> str:
