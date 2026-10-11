@@ -116,12 +116,14 @@ class TradingEngine:
         # Live stats
         live_balance = 0.0
         live_equity = 0.0
+        live_error = ""
         if self.delta.is_authenticated():
             try:
                 live_bal = await self.delta.fetch_balance()
                 live_balance = float(live_bal.get("free", 0.0))
                 live_equity = float(live_bal.get("total", live_balance))
             except Exception as exc:
+                live_error = f"{type(exc).__name__}: {str(exc)[:120]}"
                 log.warning("Failed to fetch live balance for overview: %s", exc)
 
         live_unrealized = sum(p.pnl for p in live_opens)
@@ -134,6 +136,7 @@ class TradingEngine:
             "mode": self.settings.mode,
             "region": self.settings.region,
             "delta_connected": self.delta.is_authenticated(),
+            "live_error": live_error,
             "max_positions": self.settings.max_positions,
             "risk_pct": self.settings.risk_per_trade_pct,
             "leverage": self.settings.leverage,

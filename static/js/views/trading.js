@@ -149,7 +149,9 @@ export async function render(root, { ok }) {
         ),
         h('div', null,
           h('dt', null, 'Status'),
-          h('dd', null, isLiveView ? (overview.delta_connected ? 'Connected (India)' : 'Not Connected') : 'Active ($10K Sim)')
+          h('dd', { style: overview.live_error ? { color: 'var(--down)', fontSize: '0.8rem' } : {} },
+            isLiveView ? (overview.live_error || (overview.delta_connected ? 'Connected (India)' : 'Not Connected')) : 'Active ($10K Sim)'
+          )
         )
       );
 
