@@ -103,7 +103,16 @@ class DeltaClient:
                 ex.set_sandbox_mode(True)
 
             self._exchange = ex
-            return ex
+
+        # Ensure credentials and urls are always synced with latest env
+        if self._exchange is not None:
+            if self.api_key:
+                self._exchange.apiKey = self.api_key
+            if self.api_secret:
+                self._exchange.secret = self.api_secret
+            self._exchange.urls = DELTA_URLS.get(self.region, DELTA_URLS["india"])
+
+        return self._exchange
 
     async def close(self) -> None:
         if self._exchange is not None:
