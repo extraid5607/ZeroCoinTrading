@@ -234,9 +234,9 @@ def create_app(settings: Settings | None = None, api=None, clock=time.time) -> F
         return eng
 
     @app.get("/api/trading/overview")
-    def trading_overview():
+    async def trading_overview():
         engine = _engine()
-        overview = engine.calculate_overview()
+        overview = await engine.calculate_overview()
         opens = [p.to_dict() for p in engine.get_open_positions()]
         closed = [p.to_dict() for p in engine.get_closed_positions(30)]
         return {

@@ -89,7 +89,7 @@ class TradingEngine:
         with self.db.session() as s:
             return list(s.scalars(select(TradePosition).where(TradePosition.status != "open").order_by(TradePosition.id.desc()).limit(limit)))
 
-    def calculate_overview(self) -> dict:
+    async def calculate_overview(self) -> dict:
         opens = self.get_open_positions()
         closed = self.get_closed_positions(50)
 
@@ -99,13 +99,24 @@ class TradingEngine:
         total_closed = len(closed)
         win_rate = (wins / total_closed * 100) if total_closed > 0 else 0.0
 
-        equity = self.settings.virtual_balance + unrealized_pnl
+        balance = self.settings.virtual_balance
+        equity = balance + unrealized_pnl
+
+        # When in LIVE mode and Delta is authenticated, show real live account margin
+        if self.settings.mode == "live" and self.delta.is_authenticated():
+            try:
+                live_bal = await self.delta.fetch_balance()
+                balance = float(live_bal.get("free", 0.0))
+                total_val = float(live_bal.get("total", balance))
+                equity = total_val
+            except Exception as exc:
+                log.warning("Failed to fetch live balance for overview: %s", exc)
 
         return {
             "auto_trade": self.settings.auto_trade,
             "mode": self.settings.mode,
             "region": self.settings.region,
-            "balance": round(self.settings.virtual_balance, 2),
+            "balance": round(balance, 2),
             "equity": round(equity, 2),
             "unrealized_pnl": round(unrealized_pnl, 2),
             "realized_pnl": round(realized_pnl, 2),
