@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>ZeroCoin</title>
+  <meta name="description" content="ZeroCoin scans 500+ crypto coins every day and lists the ones breaking out: all-time highs, 365-day highs, W patterns and range breakouts.">
+  <meta name="theme-color" content="#0c1722">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230c1722'/%3E%3Cpath d='M7 22l6-7 4 4 8-10' fill='none' stroke='%23f5922b' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <script src="/static/js/theme.js"></script>
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+  <a class="skip" href="#view">Skip to content</a>
+  <div class="app">
+    <div class="side">
+      <header class="brand">
+        <a class="brand-name" href="#/scanner" aria-label="ZeroCoin home">
+          <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><rect width="32" height="32" rx="7" class="logo-bg"/><path d="M7 22l6-7 4 4 8-10" fill="none" stroke="#f5922b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>ZeroCoin</span>
+        </a>
+        <span class="live-pill" id="live-indicator"><span class="pulse-dot"></span> LIVE DATA</span>
+        <span class="tagline">Real-time crypto pattern scanner.</span>
+        <button class="icon-btn" id="theme-toggle" type="button" aria-label="Switch between light and dark theme"></button>
+      </header>
+      <nav class="nav" id="nav" aria-label="Main"></nav>
+      <div class="live-info-box" id="live-info-box">
+        <div class="live-info-header"><span class="pulse-dot"></span> <strong id="live-feed-title">CCXT Real-Time Feeds</strong></div>
+        <div class="live-info-sub" id="live-feed-details">Scanning top 500 spot pairs</div>
+      </div>
+      <p class="side-note">Educational tool, not financial advice. Crypto is risky.</p>
+    </div>
+    <main id="view" tabindex="-1">
+      <p class="loading">Loading…</p>
+    </main>
+  </div>
+  <noscript><p class="noscript">ZeroCoin needs JavaScript to show the scanner.</p></noscript>
+  <script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

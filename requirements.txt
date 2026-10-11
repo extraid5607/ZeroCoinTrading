@@ -1,0 +1,9 @@
+fastapi>=0.142,<1
+uvicorn[standard]>=0.54,<1
+SQLAlchemy>=2.1,<2.2
+httpx>=0.28,<1
+# CCXT changes often because exchanges change their APIs: keep it current within 4.x
+ccxt>=4.5.85,<5
+# Only used when DATABASE_URL points at PostgreSQL (recommended for hosting)
+psycopg[binary]>=3.2,<4
+python-dotenv>=1.0.0
