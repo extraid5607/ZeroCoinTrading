@@ -93,40 +93,68 @@ class TradingEngine:
         opens = self.get_open_positions()
         closed = self.get_closed_positions(50)
 
-        unrealized_pnl = sum(p.pnl for p in opens)
-        realized_pnl = sum(p.pnl for p in closed)
-        wins = sum(1 for p in closed if p.pnl > 0)
-        total_closed = len(closed)
-        win_rate = (wins / total_closed * 100) if total_closed > 0 else 0.0
+        # Separate positions by mode
+        paper_opens = [p for p in opens if p.mode == "paper"]
+        live_opens = [p for p in opens if p.mode == "live"]
+        paper_closed = [p for p in closed if p.mode == "paper"]
+        live_closed = [p for p in closed if p.mode == "live"]
 
-        balance = self.settings.virtual_balance
-        equity = balance + unrealized_pnl
+        # Paper stats
+        paper_unrealized = sum(p.pnl for p in paper_opens)
+        paper_realized = sum(p.pnl for p in paper_closed)
+        paper_wins = sum(1 for p in paper_closed if p.pnl > 0)
+        paper_win_rate = (paper_wins / len(paper_closed) * 100) if paper_closed else 0.0
 
-        # When in LIVE mode and Delta is authenticated, show real live account margin
-        if self.settings.mode == "live" and self.delta.is_authenticated():
+        # Live stats
+        live_balance = 0.0
+        live_equity = 0.0
+        if self.delta.is_authenticated():
             try:
                 live_bal = await self.delta.fetch_balance()
-                balance = float(live_bal.get("free", 0.0))
-                total_val = float(live_bal.get("total", balance))
-                equity = total_val
+                live_balance = float(live_bal.get("free", 0.0))
+                live_equity = float(live_bal.get("total", live_balance))
             except Exception as exc:
                 log.warning("Failed to fetch live balance for overview: %s", exc)
+
+        live_unrealized = sum(p.pnl for p in live_opens)
+        live_realized = sum(p.pnl for p in live_closed)
+        live_wins = sum(1 for p in live_closed if p.pnl > 0)
+        live_win_rate = (live_wins / len(live_closed) * 100) if live_closed else 0.0
 
         return {
             "auto_trade": self.settings.auto_trade,
             "mode": self.settings.mode,
             "region": self.settings.region,
-            "balance": round(balance, 2),
-            "equity": round(equity, 2),
-            "unrealized_pnl": round(unrealized_pnl, 2),
-            "realized_pnl": round(realized_pnl, 2),
-            "win_rate": round(win_rate, 1),
-            "total_trades": total_closed,
-            "open_count": len(opens),
+            "delta_connected": self.delta.is_authenticated(),
             "max_positions": self.settings.max_positions,
             "risk_pct": self.settings.risk_per_trade_pct,
             "leverage": self.settings.leverage,
-            "delta_connected": self.delta.is_authenticated(),
+            "paper": {
+                "balance": round(self.settings.virtual_balance, 2),
+                "equity": round(self.settings.virtual_balance + paper_unrealized, 2),
+                "unrealized_pnl": round(paper_unrealized, 2),
+                "realized_pnl": round(paper_realized, 2),
+                "win_rate": round(paper_win_rate, 1),
+                "total_trades": len(paper_closed),
+                "open_count": len(paper_opens),
+            },
+            "live": {
+                "balance": round(live_balance, 2),
+                "equity": round(live_equity, 2),
+                "unrealized_pnl": round(live_unrealized, 2),
+                "realized_pnl": round(live_realized, 2),
+                "win_rate": round(live_win_rate, 1),
+                "total_trades": len(live_closed),
+                "open_count": len(live_opens),
+            },
+            # Top-level fallback for backward compatibility
+            "balance": round(live_balance if self.settings.mode == "live" else self.settings.virtual_balance, 2),
+            "equity": round(live_equity if self.settings.mode == "live" else (self.settings.virtual_balance + paper_unrealized), 2),
+            "unrealized_pnl": round(live_unrealized if self.settings.mode == "live" else paper_unrealized, 2),
+            "realized_pnl": round(live_realized if self.settings.mode == "live" else paper_realized, 2),
+            "win_rate": round(live_win_rate if self.settings.mode == "live" else paper_win_rate, 1),
+            "total_trades": len(live_closed if self.settings.mode == "live" else paper_closed),
+            "open_count": len(live_opens if self.settings.mode == "live" else paper_opens),
         }
 
     # ---- Signal Execution -----------------------------------------------------
